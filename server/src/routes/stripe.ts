@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import Stripe from 'stripe';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import prisma from '../lib/prisma';
+import { sendPaymentReceiptToClient, sendPaymentAlertToContractor } from '../lib/email';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: '2023-10-16',
@@ -171,14 +172,37 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
       const invoiceId = pi.metadata?.invoiceId;
 
       if (invoiceId) {
-        await prisma.invoice.update({
+        const invoice = await prisma.invoice.update({
           where: { id: invoiceId },
           data: { status: 'paid' },
+          include: { user: true },
         });
         await prisma.payment.update({
           where: { stripePaymentIntentId: pi.id },
           data: { status: 'succeeded', paymentMethod: pi.payment_method_types[0] },
         });
+
+        // Send emails — fire and forget (don't block the webhook response)
+        if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== 're_your_resend_api_key') {
+          Promise.all([
+            sendPaymentReceiptToClient({
+              clientEmail: invoice.clientEmail,
+              clientName: invoice.clientName,
+              invoiceNo: invoice.invoiceNo,
+              amount: invoice.amount,
+              currency: invoice.currency,
+              contractorName: `${invoice.user.firstName} ${invoice.user.lastName}`,
+            }),
+            sendPaymentAlertToContractor({
+              contractorEmail: invoice.user.email,
+              contractorName: `${invoice.user.firstName} ${invoice.user.lastName}`,
+              clientName: invoice.clientName,
+              invoiceNo: invoice.invoiceNo,
+              amount: invoice.amount,
+              currency: invoice.currency,
+            }),
+          ]).catch((err) => console.error('Email send error:', err));
+        }
       }
       break;
     }
