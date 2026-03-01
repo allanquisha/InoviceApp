@@ -1,0 +1,130 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  password  String
+  firstName String
+  lastName  String
+  stripeId  String?    @unique // Stripe Connect Account ID
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  invoices  Invoice[]
+  estimates Estimate[]
+  payments  Payment[]
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  invoiceNo   String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  clientName  String
+  clientEmail String
+  
+  amount      Float
+  currency    String   @default("USD")
+  
+  description String?
+  items       InvoiceItem[]
+  
+  status      String   @default("draft") // draft, sent, viewed, paid, overdue
+  
+  dueDate     DateTime?
+  issueDate   DateTime @default(now())
+  
+  notes       String?
+  
+  paymentId   String?
+  payment     Payment?  @relation(fields: [paymentId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  
+  description String
+  quantity    Float
+  unitPrice   Float
+  amount      Float
+  
+  createdAt   DateTime @default(now())
+}
+
+model Estimate {
+  id          String   @id @default(cuid())
+  estimateNo  String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  clientName  String
+  clientEmail String
+  
+  amount      Float
+  currency    String   @default("USD")
+  
+  description String?
+  items       EstimateItem[]
+  
+  status      String   @default("draft") // draft, sent, viewed, accepted, rejected, converted
+  
+  validUntil  DateTime?
+  issueDate   DateTime @default(now())
+  
+  notes       String?
+  
+  invoiceId   String?  // Reference to converted invoice
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model EstimateItem {
+  id          String   @id @default(cuid())
+  estimateId  String
+  estimate    Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  
+  description String
+  quantity    Float
+  unitPrice   Float
+  amount      Float
+  
+  createdAt   DateTime @default(now())
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  invoices      Invoice[]
+  
+  amount        Float
+  currency      String   @default("USD")
+  
+  stripePaymentIntentId String? @unique
+  status        String   @default("pending") // pending, processing, succeeded, failed, canceled
+  
+  paymentMethod String?  // card, bank_transfer, etc.
+  
+  metadata      String?  // JSON string for additional data
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
