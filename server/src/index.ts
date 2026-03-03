@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import cron from 'node-cron';
+import rateLimit from 'express-rate-limit';
 
 dotenv.config();
 
@@ -20,6 +21,35 @@ const app: Express = express();
 const port = process.env.PORT || 5000;
 const isProd = process.env.NODE_ENV === 'production';
 
+// ─── Rate limiters ────────────────────────────────────────────────────────────
+
+// Auth: 10 attempts per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many attempts, please try again in 15 minutes' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General API: 200 requests per minute per IP
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  message: { error: 'Too many requests, please slow down' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Public pay page: 30 payment intents per 10 minutes per IP
+const paymentLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  message: { error: 'Too many payment requests, please try again shortly' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Stripe webhook requires the raw body — mount before express.json()
 app.use(
   '/api/stripe/webhook',
@@ -35,13 +65,14 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // API routes
-app.use('/api/auth', authRoutes);
-app.use('/api/invoices', invoiceRoutes);
-app.use('/api/estimates', estimateRoutes);
-app.use('/api/stripe', stripeRoutes);
-app.use('/api/public', publicRoutes);
-app.use('/api/clients', clientRoutes);
-app.use('/api/earnings', earningsRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/invoices', apiLimiter, invoiceRoutes);
+app.use('/api/estimates', apiLimiter, estimateRoutes);
+app.use('/api/stripe/payment-intent', paymentLimiter);
+app.use('/api/stripe', apiLimiter, stripeRoutes);
+app.use('/api/public', paymentLimiter, publicRoutes);
+app.use('/api/clients', apiLimiter, clientRoutes);
+app.use('/api/earnings', apiLimiter, earningsRoutes);
 
 // Health check
 app.get('/api/health', (_req: Request, res: Response) => {
