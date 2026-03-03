@@ -6,6 +6,8 @@ export interface User {
   firstName: string;
   lastName: string;
   stripeId?: string | null;
+  planType: string;
+  smsEnabled: boolean;
   createdAt: string;
 }
 

@@ -16,6 +16,9 @@ import EstimateForm from './pages/EstimateForm';
 import EstimateDetail from './pages/EstimateDetail';
 import Settings from './pages/Settings';
 import Pay from './pages/Pay';
+import Clients from './pages/Clients';
+import ClientDetail from './pages/ClientDetail';
+import Earnings from './pages/Earnings';
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -48,6 +51,11 @@ export default function App() {
           <Route path="/estimates/new" element={<ProtectedLayout><EstimateForm /></ProtectedLayout>} />
           <Route path="/estimates/:id" element={<ProtectedLayout><EstimateDetail /></ProtectedLayout>} />
           <Route path="/estimates/:id/edit" element={<ProtectedLayout><EstimateForm /></ProtectedLayout>} />
+
+          <Route path="/clients" element={<ProtectedLayout><Clients /></ProtectedLayout>} />
+          <Route path="/clients/:id" element={<ProtectedLayout><ClientDetail /></ProtectedLayout>} />
+
+          <Route path="/earnings" element={<ProtectedLayout><Earnings /></ProtectedLayout>} />
 
           <Route path="/settings" element={<ProtectedLayout><Settings /></ProtectedLayout>} />
           <Route path="/settings/stripe/complete" element={<ProtectedLayout><Settings /></ProtectedLayout>} />

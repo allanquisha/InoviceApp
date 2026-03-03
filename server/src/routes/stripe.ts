@@ -59,6 +59,92 @@ router.get('/account', authenticate, async (req: AuthRequest, res: Response): Pr
   });
 });
 
+// ─── Subscription billing ─────────────────────────────────────────────────────
+
+// POST /api/stripe/subscribe — create a Stripe Checkout session for $25/month subscription
+router.post('/subscribe', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  const user = await prisma.user.findUnique({ where: { id: req.userId! } });
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+  // Ensure the user has a Stripe Customer record
+  let customerId = user.stripeCustomerId;
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: user.email,
+      name: `${user.firstName} ${user.lastName}`,
+      metadata: { userId: user.id },
+    });
+    customerId = customer.id;
+    await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId: customerId } });
+  }
+
+  const session = await stripe.checkout.sessions.create({
+    customer: customerId,
+    mode: 'subscription',
+    payment_method_types: ['card'],
+    line_items: [
+      {
+        price_data: {
+          currency: 'usd',
+          product_data: { name: 'FieldPay Pro', description: 'Unlimited invoices, deposits, SMS reminders' },
+          unit_amount: 2500, // $25.00
+          recurring: { interval: 'month' },
+        },
+        quantity: 1,
+      },
+    ],
+    success_url: `${process.env.FRONTEND_URL}/settings?plan=success`,
+    cancel_url: `${process.env.FRONTEND_URL}/settings?plan=cancel`,
+    metadata: { userId: user.id },
+  });
+
+  res.json({ url: session.url });
+});
+
+// GET /api/stripe/subscription — return current subscription status
+router.get('/subscription', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  const user = await prisma.user.findUnique({ where: { id: req.userId! } });
+  if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+  // Count invoices this month for free-tier users
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const invoicesThisMonth = await prisma.invoice.count({
+    where: { userId: user.id, createdAt: { gte: startOfMonth }, invoiceType: 'standard' },
+  });
+
+  res.json({
+    planType: user.planType,
+    subscriptionId: user.subscriptionId,
+    subscriptionEnd: user.subscriptionEnd,
+    invoicesThisMonth,
+    invoiceLimit: user.planType === 'free' ? 3 : null,
+  });
+});
+
+// POST /api/stripe/billing-portal — return Stripe Customer Portal link
+router.post('/billing-portal', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  const user = await prisma.user.findUnique({ where: { id: req.userId! } });
+  if (!user?.stripeCustomerId) {
+    res.status(400).json({ error: 'No billing account found' });
+    return;
+  }
+
+  const session = await stripe.billingPortal.sessions.create({
+    customer: user.stripeCustomerId,
+    return_url: `${process.env.FRONTEND_URL}/settings`,
+  });
+
+  res.json({ url: session.url });
+});
+
+// POST /api/stripe/settings/sms — toggle SMS notifications
+router.post('/settings/sms', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+  const { smsEnabled } = req.body;
+  await prisma.user.update({ where: { id: req.userId! }, data: { smsEnabled: Boolean(smsEnabled) } });
+  res.json({ smsEnabled: Boolean(smsEnabled) });
+});
+
 // ─── Payment intents ──────────────────────────────────────────────────────────
 
 // POST /api/stripe/payment-intent — create a payment intent for an invoice
@@ -228,13 +314,41 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     case 'account.updated': {
       // A connected account completed onboarding
       const account = event.data.object as Stripe.Account;
-      const userId = account.metadata?.userId;
-      if (userId) {
+      if (account.metadata?.userId) {
         await prisma.user.updateMany({
           where: { stripeId: account.id },
           data: { stripeId: account.id },
         });
       }
+      break;
+    }
+
+    // ─── Subscription events ───────────────────────────────────────────────────
+
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated': {
+      const sub = event.data.object as Stripe.Subscription;
+      const customerId = sub.customer as string;
+      const periodEnd = new Date((sub as any).current_period_end * 1000);
+      const active = sub.status === 'active' || sub.status === 'trialing';
+      await prisma.user.updateMany({
+        where: { stripeCustomerId: customerId },
+        data: {
+          planType: active ? 'pro' : 'free',
+          subscriptionId: sub.id,
+          subscriptionEnd: periodEnd,
+        },
+      });
+      break;
+    }
+
+    case 'customer.subscription.deleted': {
+      const sub = event.data.object as Stripe.Subscription;
+      const customerId = sub.customer as string;
+      await prisma.user.updateMany({
+        where: { stripeCustomerId: customerId },
+        data: { planType: 'free', subscriptionId: null, subscriptionEnd: null },
+      });
       break;
     }
 

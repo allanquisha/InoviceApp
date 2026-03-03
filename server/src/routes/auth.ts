@@ -23,7 +23,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
   const hashed = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
     data: { email, password: hashed, firstName, lastName },
-    select: { id: true, email: true, firstName: true, lastName: true, createdAt: true },
+    select: { id: true, email: true, firstName: true, lastName: true, planType: true, smsEnabled: true, createdAt: true },
   });
 
   const token = jwt.sign(
@@ -62,7 +62,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     { expiresIn: 60 * 60 * 24 * 7 } // 7 days in seconds
   );
 
-  const { password: _, ...safeUser } = user;
+  const { password: _, ...safeUser } = user as typeof user & { password: string };
   res.json({ user: safeUser, token });
 });
 
@@ -82,7 +82,7 @@ router.get('/me', async (req: Request, res: Response): Promise<void> => {
 
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
-      select: { id: true, email: true, firstName: true, lastName: true, stripeId: true, createdAt: true },
+      select: { id: true, email: true, firstName: true, lastName: true, stripeId: true, planType: true, smsEnabled: true, createdAt: true },
     });
 
     if (!user) {

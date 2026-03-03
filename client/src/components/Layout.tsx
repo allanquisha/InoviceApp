@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, FileText, ClipboardList, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, FileText, ClipboardList, Settings, LogOut, Users, TrendingUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -25,6 +25,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </NavLink>
           <NavLink to="/estimates" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
             <ClipboardList /> Estimates
+          </NavLink>
+          <NavLink to="/clients" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+            <Users /> Clients
+          </NavLink>
+          <NavLink to="/earnings" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+            <TrendingUp /> Earnings
           </NavLink>
           <NavLink to="/settings" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
             <Settings /> Settings

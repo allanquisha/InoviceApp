@@ -11,59 +11,91 @@ datasource db {
 }
 
 model User {
+  id                String     @id @default(cuid())
+  email             String     @unique
+  password          String
+  firstName         String
+  lastName          String
+  stripeId          String?    @unique // Stripe Connect Account ID
+  stripeCustomerId  String?    @unique // Stripe Customer ID (for subscriptions)
+  subscriptionId    String?    @unique // Stripe Subscription ID
+  subscriptionEnd   DateTime?           // Grace period end
+  planType          String     @default("free") // "free" | "pro"
+  smsEnabled        Boolean    @default(false)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  invoices  Invoice[]
+  estimates Estimate[]
+  payments  Payment[]
+  clients   Client[]
+}
+
+model Client {
   id        String     @id @default(cuid())
-  email     String     @unique
-  password  String
-  firstName String
-  lastName  String
-  stripeId  String?    @unique // Stripe Connect Account ID
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  email     String
+  phone     String?
+  address   String?
+  notes     String?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
   invoices  Invoice[]
   estimates Estimate[]
-  payments  Payment[]
 }
 
 model Invoice {
-  id          String   @id @default(cuid())
-  invoiceNo   String   @unique
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  clientName  String
-  clientEmail String
-  
-  amount      Float
-  currency    String   @default("USD")
-  
-  description String?
-  items       InvoiceItem[]
-  
-  status      String   @default("draft") // draft, sent, viewed, paid, overdue
-  
-  dueDate     DateTime?
-  issueDate   DateTime @default(now())
-  
-  notes       String?
-  
-  paymentId   String?
-  payment     Payment?  @relation(fields: [paymentId], references: [id])
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(cuid())
+  invoiceNo        String   @unique
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  clientId         String?
+  client           Client?  @relation(fields: [clientId], references: [id])
+
+  clientName       String
+  clientEmail      String
+  clientPhone      String?
+
+  amount           Float
+  currency         String   @default("USD")
+
+  description      String?
+  items            InvoiceItem[]
+
+  status           String   @default("draft") // draft, sent, viewed, paid, overdue
+
+  invoiceType      String   @default("standard") // standard, deposit, balance
+  depositPercent   Float?
+  depositInvoiceId String?  // for balance invoices: ID of the deposit invoice
+
+  smsReminders     Boolean  @default(false)
+
+  dueDate          DateTime?
+  issueDate        DateTime @default(now())
+
+  notes            String?
+
+  paymentId        String?
+  payment          Payment?  @relation(fields: [paymentId], references: [id])
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model InvoiceItem {
   id          String   @id @default(cuid())
   invoiceId   String
   invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  
+
   description String
   quantity    Float
   unitPrice   Float
   amount      Float
-  
+
   createdAt   DateTime @default(now())
 }
 
@@ -72,25 +104,28 @@ model Estimate {
   estimateNo  String   @unique
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
+  clientId    String?
+  client      Client?  @relation(fields: [clientId], references: [id])
+
   clientName  String
   clientEmail String
-  
+
   amount      Float
   currency    String   @default("USD")
-  
+
   description String?
   items       EstimateItem[]
-  
+
   status      String   @default("draft") // draft, sent, viewed, accepted, rejected, converted
-  
+
   validUntil  DateTime?
   issueDate   DateTime @default(now())
-  
+
   notes       String?
-  
+
   invoiceId   String?  // Reference to converted invoice
-  
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -99,12 +134,12 @@ model EstimateItem {
   id          String   @id @default(cuid())
   estimateId  String
   estimate    Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
-  
+
   description String
   quantity    Float
   unitPrice   Float
   amount      Float
-  
+
   createdAt   DateTime @default(now())
 }
 
@@ -112,19 +147,19 @@ model Payment {
   id            String   @id @default(cuid())
   userId        String
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   invoices      Invoice[]
-  
+
   amount        Float
   currency      String   @default("USD")
-  
+
   stripePaymentIntentId String? @unique
   status        String   @default("pending") // pending, processing, succeeded, failed, canceled
-  
+
   paymentMethod String?  // card, bank_transfer, etc.
-  
+
   metadata      String?  // JSON string for additional data
-  
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

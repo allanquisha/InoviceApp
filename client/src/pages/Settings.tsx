@@ -1,17 +1,30 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { startConnect, getAccountStatus, StripeAccountStatus } from '../api/stripe';
-import { ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
+import {
+  startConnect, getAccountStatus, StripeAccountStatus,
+  subscribe, getSubscription, getBillingPortal, SubscriptionStatus,
+  updateSmsEnabled,
+} from '../api/stripe';
+import { ExternalLink, CheckCircle, AlertCircle, Zap, CreditCard, MessageSquare } from 'lucide-react';
 
 export default function Settings() {
-  const { user } = useAuth();
+  const { user, login, token } = useAuth();
+  const [searchParams] = useSearchParams();
   const [status, setStatus] = useState<StripeAccountStatus | null>(null);
+  const [sub, setSub] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
+  const [planMsg, setPlanMsg] = useState('');
+  const [smsToggling, setSmsToggling] = useState(false);
 
   useEffect(() => {
-    getAccountStatus()
-      .then(setStatus)
+    const planParam = searchParams.get('plan');
+    if (planParam === 'success') setPlanMsg('You are now on the Pro plan!');
+    else if (planParam === 'cancel') setPlanMsg('Subscription cancelled.');
+
+    Promise.all([getAccountStatus(), getSubscription()])
+      .then(([acc, s]) => { setStatus(acc); setSub(s); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -26,6 +39,46 @@ export default function Settings() {
     }
   }
 
+  async function handleUpgrade() {
+    setConnecting(true);
+    try {
+      const url = await subscribe();
+      window.location.href = url;
+    } catch {
+      alert('Could not start checkout. Try again.');
+      setConnecting(false);
+    }
+  }
+
+  async function handleManageBilling() {
+    setConnecting(true);
+    try {
+      const url = await getBillingPortal();
+      window.location.href = url;
+    } catch {
+      alert('Could not open billing portal.');
+      setConnecting(false);
+    }
+  }
+
+  async function handleSmsToggle() {
+    if (!user) return;
+    setSmsToggling(true);
+    try {
+      await updateSmsEnabled(!user.smsEnabled);
+      // Refresh user context — re-fetch /me via getMe
+      const { getMe } = await import('../api/auth');
+      const fresh = await getMe();
+      login(fresh, token!);
+    } catch {
+      alert('Failed to update SMS settings.');
+    } finally {
+      setSmsToggling(false);
+    }
+  }
+
+  const isPro = sub?.planType === 'pro';
+
   return (
     <>
       <div className="page-header">
@@ -34,6 +87,12 @@ export default function Settings() {
           <p className="page-sub">Manage your account and payment setup</p>
         </div>
       </div>
+
+      {planMsg && (
+        <div className={`alert ${planMsg.includes('Pro') ? 'alert-success' : 'alert-info'} mb-16`}>
+          {planMsg}
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 600 }}>
         {/* Profile */}
@@ -49,6 +108,82 @@ export default function Settings() {
               <div className="detail-value">{user?.email}</div>
             </div>
           </div>
+        </div>
+
+        {/* Plan */}
+        <div className="card card-body">
+          <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Zap size={16} /> Plan
+          </div>
+
+          {loading ? (
+            <div className="spinner" />
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <span
+                  style={{
+                    background: isPro ? '#7c3aed' : 'var(--border)',
+                    color: isPro ? '#fff' : 'var(--text-muted)',
+                    borderRadius: 20,
+                    padding: '3px 12px',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  {isPro ? 'Pro' : 'Free'}
+                </span>
+                {isPro ? (
+                  <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Unlimited invoices</span>
+                ) : (
+                  <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                    {sub?.invoicesThisMonth ?? 0} / 3 invoices this month
+                  </span>
+                )}
+              </div>
+
+              {!isPro && (
+                <div style={{ marginBottom: 16 }}>
+                  <div
+                    style={{
+                      height: 6, background: 'var(--border)', borderRadius: 4, overflow: 'hidden', marginBottom: 8,
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${Math.min(100, ((sub?.invoicesThisMonth ?? 0) / 3) * 100)}%`,
+                        background: (sub?.invoicesThisMonth ?? 0) >= 3 ? 'var(--danger)' : 'var(--primary)',
+                        borderRadius: 4,
+                        transition: 'width 0.3s',
+                      }}
+                    />
+                  </div>
+                  <p className="text-muted" style={{ fontSize: 12 }}>
+                    Free plan: 3 invoices/month. Upgrade to Pro for unlimited.
+                  </p>
+                </div>
+              )}
+
+              {isPro ? (
+                <button className="btn btn-ghost" onClick={handleManageBilling} disabled={connecting}>
+                  <CreditCard size={14} />
+                  {connecting ? 'Redirecting…' : 'Manage billing'}
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary"
+                  onClick={handleUpgrade}
+                  disabled={connecting}
+                  style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
+                >
+                  <Zap size={14} />
+                  {connecting ? 'Redirecting…' : 'Upgrade to Pro — $25/month'}
+                </button>
+              )}
+            </>
+          )}
         </div>
 
         {/* Stripe Connect */}
@@ -108,7 +243,31 @@ export default function Settings() {
           )}
         </div>
 
-        {/* Stripe Connect return pages note */}
+        {/* SMS Notifications */}
+        <div className="card card-body">
+          <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <MessageSquare size={16} /> SMS Notifications
+          </div>
+          <p className="text-muted mt-4" style={{ fontSize: 13, marginBottom: 16 }}>
+            Send SMS reminders to clients when invoices are sent or become overdue.
+            Requires Twilio configuration and a phone number on each invoice.
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button
+              className={`btn ${user?.smsEnabled ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={handleSmsToggle}
+              disabled={smsToggling}
+              style={{ minWidth: 100 }}
+            >
+              {smsToggling ? 'Saving…' : user?.smsEnabled ? 'Enabled' : 'Disabled'}
+            </button>
+            <span className="text-muted" style={{ fontSize: 13 }}>
+              {user?.smsEnabled ? 'SMS reminders are on' : 'Click to enable SMS reminders'}
+            </span>
+          </div>
+        </div>
+
+        {/* Payment links info */}
         <div className="card card-body" style={{ background: 'var(--bg)', border: '1px dashed var(--border)' }}>
           <div className="section-title">Payment links</div>
           <p className="text-muted" style={{ fontSize: 13 }}>

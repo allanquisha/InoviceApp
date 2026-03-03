@@ -14,11 +14,17 @@ export interface Invoice {
   invoiceNo: string;
   clientName: string;
   clientEmail: string;
+  clientPhone?: string | null;
+  clientId?: string | null;
   amount: number;
   currency: string;
   description?: string;
   notes?: string;
   status: 'draft' | 'sent' | 'viewed' | 'paid' | 'overdue';
+  invoiceType?: string;
+  depositPercent?: number | null;
+  depositInvoiceId?: string | null;
+  smsReminders?: boolean;
   dueDate?: string;
   issueDate: string;
   items: InvoiceItem[];
@@ -29,6 +35,9 @@ export interface Invoice {
 export interface InvoiceInput {
   clientName: string;
   clientEmail: string;
+  clientPhone?: string;
+  clientId?: string;
+  smsReminders?: boolean;
   description?: string;
   notes?: string;
   dueDate?: string;
